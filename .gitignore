@@ -19,6 +19,10 @@ outputs/
 .gradio/
 flagged/
 
+# Scratch: commit-message drafts and similar throwaway files
+.git-commit-msg
+*.commit-msg
+
 # macOS
 .DS_Store
 .DS_Store?

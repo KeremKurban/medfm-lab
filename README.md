@@ -70,7 +70,7 @@ Other entry points:
 
 ---
 
-## The five tabs
+## The six tabs
 
 **1 · Inference** — load a backbone, pick a MedMNIST+ image or upload one, and get the
 pooled embedding, patch grid, effective rank and anisotropy of the patch tokens, a PCA→RGB
@@ -99,7 +99,12 @@ and the headline measurement: a **layer-wise linear probe**. If a linear model o
 features already reads the label, adaptation is wasted compute. If it does not, the probe
 curve says which blocks to touch, and the tool prints a concrete adapter block range.
 
-**5 · Models** — the catalogue with licences and gating status.
+**5 · Models** — what each backbone is for, its caveats, and the catalogue with licences
+and gating status.
+
+**6 · Glossary** — every term the app displays, in plain language. Every metric on the
+Inference tab also carries a hover definition, and each dataset has an expandable "what is
+this dataset?" panel listing its classes and what each label means clinically.
 
 ---
 

@@ -162,7 +162,7 @@ def main():
     # not be relabelled as an upload by the change event Gradio re-emits.
     if r is not None:
         a = step("analyze (sample provenance)", lab.analyze, r[0], True, 8)
-        summary, status = (a[0], a[6]) if a else ("", "")
+        summary, status = (a[0], a[7]) if a else ("", "")
         if "test[" in status and "Uploaded" not in status:
             RESULTS.append(("sample provenance", "OK", status[:40]))
             print(f"[OK]   sample provenance           -> {status[:70]}")
@@ -170,21 +170,21 @@ def main():
             RESULTS.append(("sample provenance", "FAIL", status[:60]))
             print(f"[FAIL] sample provenance           -> {status[:60]}")
         # the "what the model saw" panel must match the resolution the network consumed
-        if a and a[1] is not None:
-            seen_shape = a[1].shape
+        if a and a[2] is not None:
+            seen_shape = a[2].shape
             ih, iw = lab.LAB.out.input_size
             ok_seen = seen_shape[0] == ih and seen_shape[1] == iw
             RESULTS.append(("model-input panel", "OK" if ok_seen else "FAIL", str(seen_shape)))
             print(f"[{'OK' if ok_seen else 'FAIL'}]   model-input panel          -> "
                   f"{seen_shape[:2]} vs model input {(ih, iw)}")
         # and the PCA panel must be upscaled for display, not left at grid resolution
-        if a and a[2] is not None:
+        if a and a[3] is not None:
             g = lab.LAB.out.grid
-            ok_up = a[2].shape[0] > g[0] * 2
+            ok_up = a[3].shape[0] > g[0] * 2
             RESULTS.append(("PCA panel upscaled", "OK" if ok_up else "FAIL",
-                            f"{a[2].shape[:2]} from grid {g}"))
+                            f"{a[3].shape[:2]} from grid {g}"))
             print(f"[{'OK' if ok_up else 'FAIL'}]   PCA panel upscaled         -> "
-                  f"grid {g} drawn at {a[2].shape[:2]}")
+                  f"grid {g} drawn at {a[3].shape[:2]}")
         # ground truth must be stated in the summary
         if a and "ground truth" in a[0]:
             RESULTS.append(("ground truth shown", "OK", ""))
@@ -199,7 +199,7 @@ def main():
     altered = np.ascontiguousarray(lab.LAB.image.copy())
     altered[0:8, 0:8] = 255 - altered[0:8, 0:8]
     a2 = step("analyze (upload provenance)", lab.analyze, altered, True, 8)
-    status2 = a2[6] if a2 else ""
+    status2 = a2[7] if a2 else ""
     if "Uploaded" in status2:
         RESULTS.append(("upload provenance", "OK", status2[:40]))
         print(f"[OK]   upload provenance           -> {status2[:70]}")
@@ -269,6 +269,67 @@ def main():
         if isinstance(txt, str) and ("Traceback" in txt or "File \"" in txt):
             RESULTS.append((name + " leak", "FAIL", "traceback leaked into the UI"))
             print(f"[FAIL] {name} leaked a traceback into the UI")
+
+    print("\n=== reference content (dataset guides, glossary, hover tooltips) ===")
+    from medfm import glossary as gl
+    from medfm import guides
+
+    bad_guides = [f for f in mdata.MEDMNIST_2D
+                  if len(guides.dataset_guide_markdown(f) or "") < 200]
+    if bad_guides:
+        RESULTS.append(("dataset guides", "FAIL", str(bad_guides)))
+        print(f"[FAIL] dataset guides             -> thin or missing: {bad_guides}")
+    else:
+        RESULTS.append(("dataset guides", "OK",
+                        f"{len(mdata.MEDMNIST_2D)} datasets"))
+        print(f"[OK]   dataset guides             -> all {len(mdata.MEDMNIST_2D)} have "
+              f"class-level descriptions")
+
+    # the specific complaint: retinamnist labels are bare digits 0-4
+    ret = guides.dataset_guide_markdown("retinamnist")
+    grades = all(f"`{i}`" in ret for i in range(5))
+    has_meaning = "microaneurysm" in ret.lower() and "neovascularisation" in ret.lower()
+    if grades and has_meaning:
+        RESULTS.append(("retinamnist explained", "OK", "5 grades with clinical meaning"))
+        print("[OK]   retinamnist explained      -> all 5 ordinal grades given clinical meaning")
+    else:
+        RESULTS.append(("retinamnist explained", "FAIL", f"grades={grades} meaning={has_meaning}"))
+        print(f"[FAIL] retinamnist explained      -> grades={grades} meaning={has_meaning}")
+
+    missing_tips = [t for t in gl.GLOSSARY if not gl.SHORT.get(t.split(" (")[0])]
+    n_short = len(gl.SHORT)
+    if n_short < 15:
+        RESULTS.append(("glossary tooltips", "FAIL", f"only {n_short}"))
+        print(f"[FAIL] glossary tooltips          -> only {n_short} hover definitions")
+    else:
+        RESULTS.append(("glossary tooltips", "OK", f"{n_short} hover definitions"))
+        print(f"[OK]   glossary tooltips          -> {n_short} hover definitions, "
+              f"{len(gl.GLOSSARY)} full entries")
+
+    # the empty-state block above cleared the analysis, so rebuild a minimal one
+    if lab.LAB.out is None or lab.LAB.encoder is None:
+        lab.load_model(lab.DEFAULT_MODEL, "model")
+        lab.fetch_sample(lab.DEFAULT_DATASET, 3)
+        lab.analyze(lab.LAB.image, False, 4)
+
+    mhtml = lab._metrics_html(lab.LAB.out, lab.LAB.encoder.spec, lab.LAB.out.pooled)
+    n_abbr = mhtml.count("<abbr title=")
+    if n_abbr >= 5:
+        RESULTS.append(("metric tooltips", "OK", f"{n_abbr} abbr"))
+        print(f"[OK]   metric tooltips            -> {n_abbr} hover definitions in the "
+              f"metrics block")
+    else:
+        RESULTS.append(("metric tooltips", "FAIL", f"{n_abbr} abbr"))
+        print(f"[FAIL] metric tooltips            -> only {n_abbr} definitions rendered")
+
+    model_gaps = [k for k in registry.MODELS if not guides.model_guide_markdown(k)]
+    if model_gaps:
+        RESULTS.append(("model guides", "FAIL", str(model_gaps)))
+        print(f"[FAIL] model guides               -> missing for {model_gaps}")
+    else:
+        RESULTS.append(("model guides", "OK", f"{len(registry.MODELS)} models"))
+        print(f"[OK]   model guides               -> all {len(registry.MODELS)} backbones "
+              f"described")
 
     print("\n=== summary ===")
     n_ok = sum(1 for _, s, _ in RESULTS if s == "OK")

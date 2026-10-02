@@ -5,6 +5,45 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-10-02
+
+Makes the app explain itself. Everything here exists so that a coloured patch map is not
+just coloured squares.
+
+### Added
+
+- **Glossary tab** (tab 6) — 19 full entries covering every term the app displays, from
+  patch grids and effective rank through to CKA, ordinal kappa and why kNN retrieval
+  excludes the query.
+- **Hover definitions on every metric.** The Inference metrics block is now HTML so each
+  term carries an `<abbr>` tooltip with a one-line plain-language definition (29 short
+  definitions total). Markdown cannot attach a definition to a term, which is the only
+  reason this block is not Markdown.
+- **Dataset guides for all 12 MedMNIST+ sets** — source dataset, modality, task, class
+  counts, licence, and for every class what the label means clinically and what tends to
+  distinguish it. Motivated by `retinamnist`, whose labels are bare digits `0`-`4`: the
+  guide now spells out the five diabetic-retinopathy grades, from microaneurysms only
+  through to proliferative neovascularisation, and explains why near-miss errors dominate.
+  Class names come from `medmnist.INFO`; the clinical notes are background from each source
+  dataset's literature, labelled as such.
+- **Model guides for all 11 backbones** — what each is, what it is best for, and its
+  caveats, shown on load and listed in full on the Models tab.
+- **Non-commercial licence warnings in the UI.** `dermamnist` is CC BY-NC 4.0, unlike the
+  other sets here which are CC BY 4.0; that is now surfaced when the dataset is selected
+  rather than buried in a table.
+- `medfm/glossary.py` and `medfm/guides.py` keep all reference content out of the UI code.
+
+### Changed
+
+- Inference results now show the metrics in their own block, separate from the narrative
+  summary, so definitions have somewhere to live.
+
+### Verified
+
+- `scripts/test_app.py` grew to **39 checks**, including that every dataset has a class-level
+  guide, that all five retinamnist grades are explained, that the metrics block renders its
+  tooltips, and that no backbone is left undocumented.
+
 ## [1.0.0] — 2026-10-02
 
 First tagged release. Validated end to end on `pneumoniamnist` (chest X-ray) and
@@ -92,4 +131,5 @@ First tagged release. Validated end to end on `pneumoniamnist` (chest X-ray) and
   spinner indistinguishable from a hung server, on a serial queue that blocked the whole
   UI. Sizes are now surfaced before the download begins.
 
+[1.1.0]: https://github.com/KeremKurban/medfm-lab/releases/tag/v1.1.0
 [1.0.0]: https://github.com/KeremKurban/medfm-lab/releases/tag/v1.0.0

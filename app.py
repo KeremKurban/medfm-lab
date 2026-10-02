@@ -23,7 +23,7 @@ import torch
 import gradio as gr
 
 from medfm import data as mdata
-from medfm import encoders, registry, viz
+from medfm import encoders, glossary as gl, guides, registry, viz
 from medfm.attention import (attention_entropy, attention_rollout, head_map_mean,
                              layer_head_summary, mean_key_attention, per_head_cls_map)
 from medfm.embeddings import (anisotropy, cluster_tokens, effective_rank, outlier_tokens,
@@ -171,6 +171,9 @@ def load_model(model_key: str, preprocess: str):
             f"blocks {spec.num_blocks}{ck}  \n"
             f"{spec.notes}"
         )
+        guide = guides.model_guide_markdown(key)
+        if guide:
+            msg += f"\n\n{guide}"
         return msg, _hint("model_ready", spec)
     except Exception as e:
         return _err(e, "Pick a backbone from the dropdown, then press **Load model** "
@@ -183,6 +186,67 @@ def sample_index_in_gallery() -> bool:
             and LAB.gallery.indices is not None
             and LAB.gallery.dataset == LAB.dataset
             and bool((LAB.gallery.indices == LAB.sample_index).any()))
+
+
+def _abbr(term: str, label: str = None) -> str:
+    """Term with a hover tooltip from the glossary."""
+    tip = gl.SHORT.get(term, "")
+    text = label if label is not None else term
+    if not tip:
+        return text
+    safe = tip.replace('"', "&quot;")
+    return (f'<abbr title="{safe}" style="border-bottom:1px dotted var(--muted-foreground, '
+            f'#888);cursor:help;text-decoration:none">{text}</abbr>')
+
+
+def _metrics_html(out, spec, pooled) -> str:
+    """The numeric block, with every term carrying a hover definition.
+
+    Rendered as HTML rather than Markdown purely so the <abbr> tooltips work — Markdown has
+    no way to attach a definition to a term.
+    """
+    n_layers = out.hidden_states.shape[0]
+    rows = [
+        (_abbr("patch grid"), f"{out.grid[0]} × {out.grid[1]} = "
+                              f"{out.grid[0] * out.grid[1]} patches"),
+        (_abbr("patch size"), f"{spec.patch_size} px square"),
+        ("input the model received", f"{out.input_size[0]} × {out.input_size[1]} px"),
+        (_abbr("CLS token (and register tokens)", "prefix tokens"),
+         f"{out.num_prefix} (1 cls" + (f" + {out.num_prefix - 1} registers"
+                                       if out.num_prefix > 1 else " only") + ")"),
+        ("embedding width", f"{out.patch_tokens.shape[1]} dims"),
+        (_abbr("Residual stream", "residual stream"), f"{n_layers} layers captured"),
+        (_abbr("embedding norm"), f"{np.linalg.norm(pooled):.2f}"),
+        (_abbr("mean |value|"), f"{np.abs(pooled).mean():.4f}"),
+        (_abbr("effective rank"),
+         f"{effective_rank(out.patch_tokens):.1f} of {out.patch_tokens.shape[1]} dims"),
+        (_abbr("anisotropy"), f"{anisotropy(out.patch_tokens):.3f}"),
+    ]
+    items = "".join(
+        f'<div style="display:flex;gap:10px;padding:2px 0">'
+        f'<span style="min-width:230px;opacity:.95">{k}</span>'
+        f'<span style="font-variant-numeric:tabular-nums">{v}</span></div>'
+        for k, v in rows
+    )
+    return (f'<div style="font-size:0.86rem;line-height:1.5">{items}</div>'
+            f'<div style="font-size:0.78rem;opacity:.7;margin-top:6px">'
+            f'Hover any dotted term for its definition · full glossary in tab 6</div>')
+
+
+def _dataset_panel(dataset_flag: str) -> str:
+    """Download notice plus the dataset's class guide."""
+    return _dataset_notice(dataset_flag) + "\n\n" + _dataset_guide_body(dataset_flag)
+
+
+def _dataset_guide_body(dataset_flag: str) -> str:
+    try:
+        flag = mdata.flag_from_option(dataset_flag)
+    except Exception:
+        return ""
+    try:
+        return guides.dataset_guide_markdown(flag)
+    except Exception as e:
+        return f"_guide unavailable: {e}_"
 
 
 def _dataset_notice(dataset_flag: str) -> str:
@@ -243,11 +307,11 @@ def analyze(image, capture_attn: bool, top_k: int):
     try:
         if LAB.encoder is None:
             return ("**No backbone loaded.** Go to ① in the left column, choose a "
-                    "backbone, press **Load model**.", None, None, None, _hint("no_model"),
-                    gr.update())
+                    "backbone, press **Load model**.", None, None, None, None, None,
+                    _hint("no_model"), gr.update())
         if image is None and LAB.image is None:
             return ("**No image yet.** Use ② to fetch a MedMNIST+ sample or upload one.",
-                    None, None, None, _hint("start"), gr.update())
+                    None, None, None, None, None, _hint("start"), gr.update())
 
         img = np.asarray(image if image is not None else LAB.image)
         # Single source of truth for provenance: if the component holds something different
@@ -284,16 +348,10 @@ def analyze(image, capture_attn: bool, top_k: int):
             f"- image: {LAB.image_status or LAB.dataset}",
             f"- **ground truth: {gt_txt}**",
             f"- model: `{spec.key}` via `{LAB.encoder.backend}` on `{LAB.encoder.device}`",
-            f"- the model received {out.input_size[0]}x{out.input_size[1]} (see the left panel) "
-            f"and cut it into a **{h}x{w} grid of {out.patch_tokens.shape[0]} patches**",
-            f"- embedding dim: {out.patch_tokens.shape[1]}, "
-            f"residual stream layers: {out.hidden_states.shape[0]}",
-            f"- embedding norm: {np.linalg.norm(pooled):.2f}, "
-            f"mean |value|: {np.abs(pooled).mean():.4f}",
-            f"- effective rank of patch tokens: {effective_rank(out.patch_tokens):.1f} "
-            f"(of {out.patch_tokens.shape[1]})",
-            f"- anisotropy (mean pairwise cosine): {anisotropy(out.patch_tokens):.3f}",
+            f"- the model received {out.input_size[0]}x{out.input_size[1]} and cut it into a "
+            f"**{h}x{w} grid of {out.patch_tokens.shape[0]} patches** — see the left panel",
         ]
+        metrics = _metrics_html(out, spec, pooled)
 
         rgb, mask, info = pca_rgb(out.patch_tokens, out.grid)
         LAB.cache["pca"] = (rgb, mask, info)
@@ -361,12 +419,14 @@ def analyze(image, capture_attn: bool, top_k: int):
                        f"{'yes' if out.attentions is not None else 'no'}")
 
         hint = _hint("analyzed" if out.attentions is not None else "analyzed_no_attn")
-        return ("\n".join(summary), seen, viz.upscale(rgb, size=seen.shape[0], nearest=True),
+        return ("\n".join(summary), metrics, seen,
+                viz.upscale(rgb, size=seen.shape[0], nearest=True),
                 viz.mask_overlay(seen, mask), ret_strip, hint,
                 LAB.image_status or "_image ready_")
     except Exception as e:
         return (_err(e, "The backbone ran but something downstream failed. Try re-loading "
-                        "the model."), None, None, None, None, _hint("start"), gr.update())
+                        "the model."), None, None, None, None, None, _hint("start"),
+                gr.update())
 
 
 def build_gallery(dataset_flag: str, n: int, pool: str, progress=gr.Progress()):
@@ -819,6 +879,9 @@ def build_app() -> gr.Blocks:
                     index_sl = gr.Slider(0, 100, value=0, step=1, label="test index",
                                          info="Which image from the test split to load.")
                     ds_notice = gr.Markdown(_dataset_notice(DEFAULT_DATASET))
+                    with gr.Accordion("📖 What is this dataset? (classes and what each means)",
+                                      open=False):
+                        ds_guide = gr.Markdown(_dataset_guide_body(DEFAULT_DATASET))
                     sample_btn = gr.Button("Fetch MedMNIST+ sample")
                     up = gr.Image(type="numpy", label="…or upload your own image",
                                   height=180)
@@ -853,6 +916,7 @@ def build_app() -> gr.Blocks:
             gr.Markdown("---")
             gr.Markdown("### Results")
             summary = gr.Markdown("_run step ③ to see results_")
+            metrics = gr.HTML("")
             with gr.Row():
                 seen_out = gr.Image(label="① what the model saw", type="numpy", height=330)
                 pca_out = gr.Image(label="② patch PCA → RGB  (one pixel per patch)",
@@ -863,9 +927,10 @@ def build_app() -> gr.Blocks:
 
             load_btn.click(load_model, [model_dd, preproc], [model_status, next_hint])
             ds_dd.change(_dataset_notice, [ds_dd], [ds_notice])
+            ds_dd.change(_dataset_guide_body, [ds_dd], [ds_guide])
             sample_btn.click(fetch_sample, [ds_dd, index_sl], [up, img_status, next_hint])
             analyze_btn.click(analyze, [up, capt, topk],
-                              [summary, seen_out, pca_out, fg_out, ret, next_hint,
+                              [summary, metrics, seen_out, pca_out, fg_out, ret, next_hint,
                                img_status])
             gal_btn.click(build_gallery, [gal_ds, gal_n, gal_pool], [gal_status, next_hint])
 
@@ -987,6 +1052,13 @@ def build_app() -> gr.Blocks:
         with gr.Tab("5 · Models"):
             with gr.Accordion("❔ What can I do on this tab? (click to open)", open=False):
                 gr.Markdown(GUIDE_MODELS)
+            gr.Markdown("### What each backbone is for")
+            gr.Markdown("\n\n---\n\n".join(
+                f"**`{k}`** — {registry.MODELS[k].label}\n\n"
+                f"{guides.model_guide_markdown(k)}"
+                for k in registry.MODELS
+            ))
+            gr.Markdown("### Catalogue")
             gr.Dataframe(value=registry_table(), headers=REGISTRY_HEADERS, wrap=True,
                          interactive=False)
             gr.Markdown(
@@ -996,6 +1068,9 @@ def build_app() -> gr.Blocks:
                 f"timm `{__import__('timm').__version__}` · "
                 f"errors are logged to `logs/errors.log`"
             )
+
+        with gr.Tab("6 · Glossary"):
+            gr.Markdown(guides.glossary_markdown())
 
     return demo
 
