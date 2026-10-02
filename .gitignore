@@ -1,0 +1,25 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Data: MedMNIST+ 224px caches run from 31 MB (breastmnist) to 12.6 GB (pathmnist),
+# plus downloaded model checkpoints. Never commit these.
+data/
+*.npz
+*.pth
+*.safetensors
+
+# Runtime output
+logs/
+outputs/
+*.log
+.gradio/
+flagged/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
